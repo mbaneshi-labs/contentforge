@@ -1,0 +1,20 @@
+[package]
+name = "contentforge-mcp"
+description = "MCP (Model Context Protocol) server for ContentForge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+contentforge-publish = { path = "../contentforge-publish" }
+contentforge-agent = { path = "../contentforge-agent" }
+
+rmcp = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

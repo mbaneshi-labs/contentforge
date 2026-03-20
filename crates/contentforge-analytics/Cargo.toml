@@ -1,0 +1,16 @@
+[package]
+name = "contentforge-analytics"
+description = "Analytics types and aggregation for ContentForge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+
+chrono = { workspace = true }
+serde = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }

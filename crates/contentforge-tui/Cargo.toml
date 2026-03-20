@@ -1,0 +1,16 @@
+[package]
+name = "contentforge-tui"
+description = "Ratatui terminal UI for ContentForge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }

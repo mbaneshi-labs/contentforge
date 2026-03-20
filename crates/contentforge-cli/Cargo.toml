@@ -1,0 +1,20 @@
+[package]
+name = "contentforge-cli"
+description = "CLI subcommands for ContentForge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+contentforge-publish = { path = "../contentforge-publish" }
+
+clap = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

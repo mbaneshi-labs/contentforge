@@ -1,0 +1,15 @@
+[package]
+name = "contentforge-core"
+description = "Core domain types for ContentForge — posts, drafts, platforms, schedules"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

@@ -1,0 +1,25 @@
+[package]
+name = "contentforge-api"
+description = "Axum web API and embedded SvelteKit frontend for ContentForge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+contentforge-publish = { path = "../contentforge-publish" }
+contentforge-schedule = { path = "../contentforge-schedule" }
+
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rust-embed = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+mime_guess = "2"

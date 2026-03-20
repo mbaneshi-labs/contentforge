@@ -1,0 +1,31 @@
+[package]
+name = "contentforge-app"
+description = "ContentForge binary — web server, TUI, MCP server, and CLI"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "contentforge"
+path = "src/main.rs"
+
+[dependencies]
+contentforge-core = { path = "../contentforge-core" }
+contentforge-db = { path = "../contentforge-db" }
+contentforge-publish = { path = "../contentforge-publish" }
+contentforge-api = { path = "../contentforge-api" }
+contentforge-tui = { path = "../contentforge-tui" }
+contentforge-cli = { path = "../contentforge-cli" }
+contentforge-agent = { path = "../contentforge-agent" }
+contentforge-schedule = { path = "../contentforge-schedule" }
+contentforge-analytics = { path = "../contentforge-analytics" }
+contentforge-mcp = { path = "../contentforge-mcp" }
+
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+rmcp = { workspace = true }
