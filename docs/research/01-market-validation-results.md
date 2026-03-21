@@ -1,0 +1,1 @@
+pbpaste > /Users/bm/contentforge/docs/research/01-market-validation-results.md
