@@ -13,6 +13,7 @@ use contentforge_publish::adapters::mastodon::MastodonPublisher;
 use contentforge_publish::adapters::medium::MediumPublisher;
 use contentforge_publish::adapters::twitter::TwitterPublisher;
 use contentforge_publish::Publisher;
+use std::str::FromStr;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -187,7 +188,7 @@ pub enum DraftAction {
 pub enum ScheduleAction {
     /// List pending schedule entries.
     List,
-    /// Add a new schedule entry.
+    /// Add a one-off schedule entry.
     Add {
         /// Content UUID.
         #[arg(short, long)]
@@ -203,6 +204,27 @@ pub enum ScheduleAction {
     Cancel {
         /// Schedule entry UUID.
         id: String,
+    },
+    /// Add a recurring cron schedule (Pro feature).
+    Cron {
+        /// Schedule name (e.g., "weekly-ship").
+        name: String,
+        /// Cron expression (e.g., "0 0 8 * * FRI" for Friday 8 AM).
+        #[arg(short, long)]
+        expr: String,
+        /// Pipeline template to run (default: publish-all).
+        #[arg(short, long, default_value = "publish-all")]
+        pipeline: String,
+        /// Target platforms (comma-separated).
+        #[arg(short = 'P', long, default_value = "devto")]
+        platforms: String,
+    },
+    /// List recurring cron schedules.
+    CronList,
+    /// Remove a recurring cron schedule.
+    CronRemove {
+        /// Schedule name.
+        name: String,
     },
 }
 
@@ -650,19 +672,188 @@ fn build_publisher(
 }
 
 // ---------------------------------------------------------------------------
-// Schedule handler (stub for Phase 1)
+// Schedule handlers
 // ---------------------------------------------------------------------------
 
-async fn handle_schedule(action: ScheduleAction, _db: &DbPool) -> Result<()> {
+async fn handle_schedule(action: ScheduleAction, db: &DbPool) -> Result<()> {
     match action {
         ScheduleAction::List => {
-            println!("Schedule: (not yet implemented — coming in Phase 2)");
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut stmt = conn.prepare(
+                "SELECT s.id, s.content_id, s.platform, s.scheduled_at, s.status, s.retries, c.title
+                 FROM schedule s LEFT JOIN content c ON s.content_id = c.id
+                 ORDER BY s.scheduled_at ASC LIMIT 20",
+            )?;
+            #[allow(clippy::type_complexity)]
+            let rows: Vec<(String, String, String, String, String, i32, Option<String>)> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i32>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            if rows.is_empty() {
+                println!("No scheduled entries.");
+                return Ok(());
+            }
+
+            println!(
+                "{:<10} {:<30} {:<12} {:<20} STATUS",
+                "ID", "TITLE", "PLATFORM", "SCHEDULED AT"
+            );
+            println!("{}", "-".repeat(85));
+            for (id, _cid, platform, at, status, _retries, title) in &rows {
+                let short_id = &id[..8.min(id.len())];
+                let platform_clean = platform.trim_matches('"');
+                let title_str = title.as_deref().unwrap_or("(unknown)");
+                let title_short = if title_str.len() > 28 {
+                    format!("{}...", &title_str[..25])
+                } else {
+                    title_str.to_string()
+                };
+                println!(
+                    "{:<10} {:<30} {:<12} {:<20} {}",
+                    short_id, title_short, platform_clean, at, status
+                );
+            }
         }
-        ScheduleAction::Add { .. } => {
-            println!("Schedule add: (not yet implemented — coming in Phase 2)");
+
+        ScheduleAction::Add {
+            content_id,
+            platform,
+            at,
+        } => {
+            let uuid = resolve_uuid(&content_id, db)?;
+            let p: Platform = platform.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            let scheduled_at = chrono::DateTime::parse_from_rfc3339(&at).map_err(|e| {
+                anyhow::anyhow!("Invalid date: {e}. Use RFC 3339: 2026-03-25T08:00:00Z")
+            })?;
+
+            let entry_id = uuid::Uuid::new_v4();
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            conn.execute(
+                "INSERT INTO schedule (id, content_id, platform, scheduled_at, status, retries, created_at)
+                 VALUES (?1, ?2, ?3, ?4, 'pending', 0, datetime('now'))",
+                rusqlite::params![
+                    entry_id.to_string(),
+                    uuid.to_string(),
+                    serde_json::to_string(&p)?,
+                    scheduled_at.to_rfc3339(),
+                ],
+            )?;
+
+            let short_id = &entry_id.to_string()[..8];
+            println!("Scheduled: {short_id}");
+            println!("  Content:  {}", &content_id[..8.min(content_id.len())]);
+            println!("  Platform: {p}");
+            println!("  Time:     {}", scheduled_at.format("%Y-%m-%d %H:%M UTC"));
         }
-        ScheduleAction::Cancel { .. } => {
-            println!("Schedule cancel: (not yet implemented — coming in Phase 2)");
+
+        ScheduleAction::Cancel { id } => {
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            conn.execute(
+                "UPDATE schedule SET status = 'cancelled' WHERE id LIKE ?1",
+                [format!("{id}%")],
+            )?;
+            println!("Cancelled: {}", &id[..8.min(id.len())]);
+        }
+
+        ScheduleAction::Cron {
+            name,
+            expr,
+            pipeline,
+            platforms,
+        } => {
+            // Pro feature gate
+            let license = load_license(db);
+            if let Err(msg) = license.require_pro("Cron scheduling") {
+                println!("{msg}");
+                return Ok(());
+            }
+
+            // Validate cron expression
+            if cron::Schedule::from_str(&expr).is_err() {
+                bail!("Invalid cron expression: '{expr}'. Example: '0 0 8 * * FRI' (Friday 8 AM)");
+            }
+
+            let platform_list: Vec<String> =
+                platforms.split(',').map(|s| s.trim().to_string()).collect();
+
+            let id = uuid::Uuid::new_v4();
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            conn.execute(
+                "INSERT INTO recurring_schedules (id, name, cron_expr, template, platforms, enabled, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'))",
+                rusqlite::params![
+                    id.to_string(),
+                    name,
+                    expr,
+                    pipeline,
+                    serde_json::to_string(&platform_list)?,
+                ],
+            )?;
+
+            println!("Cron schedule created: {name}");
+            println!("  Cron:      {expr}");
+            println!("  Pipeline:  {pipeline}");
+            println!("  Platforms: {}", platform_list.join(", "));
+        }
+
+        ScheduleAction::CronList => {
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut stmt = conn.prepare(
+                "SELECT name, cron_expr, template, platforms, enabled FROM recurring_schedules ORDER BY name",
+            )?;
+            let rows: Vec<(String, String, Option<String>, String, bool)> = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i32>(4)? != 0,
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+
+            if rows.is_empty() {
+                println!("No recurring schedules.");
+                println!("\nCreate one (Pro feature):");
+                println!("  contentforge schedule cron weekly-ship --expr '0 0 8 * * FRI' --platforms devto,mastodon");
+                return Ok(());
+            }
+
+            println!(
+                "{:<20} {:<25} {:<15} {:<8} PLATFORMS",
+                "NAME", "CRON", "PIPELINE", "ACTIVE"
+            );
+            println!("{}", "-".repeat(80));
+            for (name, cron_expr, template, platforms, enabled) in &rows {
+                let pipeline = template.as_deref().unwrap_or("publish-all");
+                let status = if *enabled { "yes" } else { "no" };
+                println!(
+                    "{:<20} {:<25} {:<15} {:<8} {}",
+                    name, cron_expr, pipeline, status, platforms
+                );
+            }
+        }
+
+        ScheduleAction::CronRemove { name } => {
+            let conn = db.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let deleted =
+                conn.execute("DELETE FROM recurring_schedules WHERE name = ?1", [&name])?;
+            if deleted > 0 {
+                println!("Removed cron schedule: {name}");
+            } else {
+                println!("No schedule found with name: {name}");
+            }
         }
     }
     Ok(())
